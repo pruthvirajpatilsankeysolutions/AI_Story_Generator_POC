@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL = os.getenv("STORY_MODEL", "openai/gpt-oss-120b")
+MODEL = os.getenv("GROQ_MODEL") or os.getenv("STORY_MODEL") or "openai/gpt-oss-20b"
+
 REASONING_EFFORT = os.getenv("REASONING_EFFORT", "medium")
 REASONING_BUFFER = 4000
 MAX_OUTPUT = 65536

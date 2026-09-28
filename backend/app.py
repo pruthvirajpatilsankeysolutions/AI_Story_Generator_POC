@@ -1,110 +1,124 @@
+"""AI Creative Story Studio: Gradio UI.
+
+Run:  python app.py
+Screens: Create Story → Development (Accept / Edit / Retry) → Final Story + Revise
+"""
+
+import tempfile
 
 import gradio as gr
 
-# ------------------------------------------------------------- options
-CONTENT_TYPES = ["Film Story", "Short Story", "Web Series Pilot", "Novel Chapter"]
-GENRES = ["Action", "Crime", "Drama", "Thriller", "Romance", "Sci-Fi", "Horror", "Comedy"]
-TONES = ["Gritty", "Emotional", "Intense", "Dark", "Hopeful", "Satirical"]
-LANGUAGES = ["English", "Hindi", "Tamil", "Telugu", "Malayalam", "Kannada", "Spanish", "French"]
-LENGTHS = ["Short", "Medium", "Long"]
+from client import StoryClient
+from config import (
+    CONTENT_TYPES,
+    GENRES,
+    LABELS,
+    LANGUAGES,
+    LENGTHS,
+    REVISION_OPTIONS,
+    STAGES,
+    TONES,
+)
+from llm import provider_name
+from theme import CSS, HEAD, THEME
 
-STAGES = ["Concept", "Logline", "Characters", "Conflict", "Ending",
-          "Structure", "Beats", "Outline", "Story"]
-
-SAMPLE = {
-    "Concept": "A poor forest worker enters an illegal timber network, first as a loader, "
-               "then as the only man who can move logs past the checkposts. Every rung he "
-               "climbs costs a piece of the forest he grew up in.",
-    "Logline": "When a humiliated forest labourer is pulled into a timber-smuggling ring, he "
-               "must outwit a ruthless syndicate boss before the forest he loves is stripped bare.",
-    "Characters": "**Raghu** - forest labourer, wants respect\n\n"
-                  "**Bhairav** - syndicate boss, wants control\n\n"
-                  "**Lakshmi** - Raghu's mother, wants him safe",
-    "Conflict": "**External:** Raghu vs the syndicate.\n\n"
-                "**Internal:** hunger for respect vs love for the forest.\n\n"
-                "**Ticking clock:** the monsoon closes the roads in 30 days.",
-    "Ending": "Raghu takes over the syndicate, then burns the final shipment himself. "
-              "Final image: a sapling in the ash as the monsoon arrives.",
-    "Structure": "**Act 1** - Humiliation and the first run.\n\n"
-                 "**Act 2** - Rise, betrayal, the midpoint checkpost.\n\n"
-                 "**Act 3** - War with Bhairav and the final choice.",
-    "Beats": "1. **Opening Image** - Raghu carrying logs he'll never own.\n"
-             "2. **Catalyst** - a public beating.\n"
-             "3. **Midpoint** - he runs the checkpost.\n"
-             "4. **All Is Lost** - his mother's house burns.\n"
-             "5. **Final Image** - a sapling in the ash.",
-    "Outline": "1. **Dawn loading** - Raghu is mocked at the depot.\n"
-               "2. **The offer** - a smuggler recruits him.\n"
-               "3. **The run** - he bluffs past the guards.\n"
-               "4. **Fire** - he burns the last shipment.",
-    "Story": "# The Last Stand of Teak\n\nThe depot bell rings before the birds wake. "
-             "Raghu shoulders a log older than his grandfather...",
-}
+client = StoryClient()
+RAIL = [("idea", "Idea")] + [(s, LABELS[s]) for s in STAGES] + [("polish", "Polish")]
 
 
-def fake_generate(stage: str, attempt: int) -> str:
-    """Placeholder for the AI. `attempt` > 0 means the user pressed Retry."""
-    text = SAMPLE[stage]
-    return text if attempt == 0 else f"*Alternative version {attempt}*\n\n{text}"
+# ---------------------------------------------------------------- render helpers
+def rail_html(values: dict, current: str | None, done: bool) -> str:
+    approved = set(values.get("approved", []))
+    items = []
+    for key, label in RAIL:
+        if key == "idea":
+            cls = "done" if values.get("idea_analysis") else "current"
+        elif key == "polish":
+            cls = "done" if done else ""
+        else:
+            cls = "done" if key in approved else "current" if key == current else ""
+        mark = {"done": "✓", "current": "●"}.get(cls, "○")
+        items.append(f'<li class="{cls}"><span class="mark">{mark}</span>{label}</li>')
+    return (
+        f'<div class="rail-head">My Story</div><ul class="rail">{"".join(items)}</ul>'
+    )
 
 
-# ------------------------------------------------------------- styling
-CSS = """
-.gradio-container { max-width: 1120px !important; width: 100% !important; margin: 0 auto; }
-#studio-title h1 { font-family: 'Courier Prime', monospace; font-size: 2rem; margin: .4rem 0 0; }
-#dev-screen { width: 100%; }
-#create-card { max-width: 680px; margin: 1.5rem auto 0; }
-.rail { list-style: none; padding: 0; margin: 0; }
-.rail li { display: flex; gap: .6rem; padding: .42rem .6rem; border-radius: 6px; color: #8A939B; }
-.rail li .mark { width: 1.2rem; text-align: center; font-weight: 700; }
-.rail li.done { color: #1F2A30; } .rail li.done .mark { color: #2E7D6B; }
-.rail li.current { background: #FFF3D6; color: #1F2A30; font-weight: 600; }
-.rail li.current .mark { color: #C98A10; }
-.rail-head { font-weight: 700; margin-bottom: .4rem; }
-.draft { font-family: 'Courier Prime', 'Courier New', monospace; line-height: 1.65;
-  background: #fff; border: 1px solid #DDE2E5; border-left: 4px solid #C98A10;
-  border-radius: 4px; padding: 1.4rem 1.8rem; max-height: 60vh; overflow-y: auto; }
-.draft * { font-family: inherit; }
-.draft .draft { border: none !important; padding: 0; background: none !important; max-height: none; }
-.dark .draft { background: #1E2327; border-color: #384046; }
-.dark .rail li.done, .dark .rail li.current { color: #E8ECEF; }
-.dark .rail li.current { background: #3A3120; }
-"""
-HEAD = ('<link href="https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700'
-        '&display=swap" rel="stylesheet">')
+def so_far_md(values: dict) -> str:
+    parts = [
+        f"### {LABELS[s]}\n{values[s]}"
+        for s in STAGES
+        if s != "story" and s in values.get("approved", []) and values.get(s)
+    ]
+    return "\n\n---\n\n".join(parts) or "_Accepted stages collect here._"
 
 
-def rail_html(step: int) -> str:
-    rows = [("Idea", "done")]
-    rows += [(s, "done" if i < step else "current" if i == step else "")
-             for i, s in enumerate(STAGES)]
-    items = "".join(
-        f'<li class="{c}"><span class="mark">{"✓" if c == "done" else "●" if c else "○"}'
-        f'</span>{label}</li>' for label, c in rows)
-    return f'<div class="rail-head">My Story</div><ul class="rail">{items}</ul>'
+def report_md(values: dict) -> str:
+    r = values.get("quality_report") or {}
+    if not r:
+        return ""
+    out = [
+        f"**Quality score:** {r.get('score', '–')}/10"
+        + (" (rewritten to fix the issues below)" if r.get("rewritten") else "")
+    ]
+    if r.get("strengths"):
+        out.append("**Strengths**\n" + "\n".join(f"- {s}" for s in r["strengths"]))
+    if r.get("issues"):
+        out.append("**Issues found**\n" + "\n".join(f"- {s}" for s in r["issues"]))
+    if values.get("revisions"):
+        out.append("**Your revisions:** " + "; ".join(values["revisions"]))
+    return "\n\n".join(out)
 
 
-# ------------------------------------------------------------- UI
+def export_story(values: dict) -> str:
+    parts = [f"# Story Bible\n\n**Idea:** {values.get('idea', '')}"]
+    parts += [
+        f"## {LABELS[s]}\n\n{values[s]}"
+        for s in STAGES
+        if s != "story" and values.get(s)
+    ]
+    parts.append("## Final Story\n\n" + values.get("final_story", ""))
+    f = tempfile.NamedTemporaryFile(
+        "w", delete=False, suffix=".md", prefix="story_", encoding="utf-8"
+    )
+    f.write("\n\n".join(parts))
+    f.close()
+    return f.name
+
+
+# ---------------------------------------------------------------- UI
 with gr.Blocks(title="AI Creative Story Studio") as demo:
-    # session: current step, retry count, accepted text per stage
-    session = gr.State({"step": 0, "attempt": 0, "accepted": {}})
+    thread = gr.State(None)
 
-    gr.Markdown("# AI Creative Story Studio\nFrom a one-line idea to a finished story, "
-                "one step at a time.", elem_id="studio-title")
+    gr.Markdown(
+        "# AI Creative Story Studio\nFrom a one-line idea to a finished story, "
+        f"one step at a time.  \n<small>Model: {provider_name()}</small>",
+        elem_id="studio-title",
+    )
 
     # ---- Screen 1: Create Story
     with gr.Column(elem_id="create-card") as create_screen:
-        gr.Dropdown(CONTENT_TYPES, value="Film Story", label="What do you want to create?")
-        idea = gr.Textbox(label="Your idea", lines=3,
-                          value="A poor forest worker wants to become powerful and earn respect.")
-        gr.CheckboxGroup(GENRES, value=["Action", "Crime", "Drama"], label="Genre")
-        gr.CheckboxGroup(TONES, value=["Gritty", "Emotional", "Intense"], label="Tone")
+        content_type = gr.Dropdown(
+            CONTENT_TYPES, value="Film Story", label="What do you want to create?"
+        )
+        idea = gr.Textbox(
+            label="Your idea",
+            lines=3,
+            value="A poor forest worker wants to become powerful and earn respect.",
+            placeholder="One or two sentences is enough.",
+        )
+        genres = gr.CheckboxGroup(
+            GENRES, value=["Action", "Crime", "Drama"], label="Genre"
+        )
+        tones = gr.CheckboxGroup(
+            TONES, value=["Gritty", "Emotional", "Intense"], label="Tone"
+        )
         with gr.Row():
-            gr.Dropdown(LANGUAGES, value="English", label="Language")
-            gr.Dropdown(LENGTHS, value="Long", label="Story length")
+            language = gr.Dropdown(LANGUAGES, value="English", label="Language")
+            length = gr.Dropdown(list(LENGTHS), value="Long", label="Story length")
         develop_btn = gr.Button("Develop my story", variant="primary", size="lg")
 
-    # ---- Screen 2: Development
+    # ---- Screen 2: Development (+ final story)
     with gr.Column(visible=False, elem_id="dev-screen") as dev_screen:
         with gr.Row(equal_height=False):
             with gr.Column(scale=1, min_width=200):
@@ -112,75 +126,175 @@ with gr.Blocks(title="AI Creative Story Studio") as demo:
                 restart_btn = gr.Button("Start a new story", size="sm")
             with gr.Column(scale=4):
                 title = gr.Markdown()
-                with gr.Column() as review_box:
+
+                with gr.Column() as review_group:
                     draft = gr.Markdown(elem_classes=["draft"])
-                    direction = gr.Textbox(label="Direction for a retry (optional)",
-                                           placeholder="e.g. make the antagonist a woman")
+                    direction = gr.Textbox(
+                        label="Direction for a retry (optional)",
+                        placeholder="e.g. make the villain more powerful",
+                    )
                     with gr.Row():
                         accept_btn = gr.Button("Accept", variant="primary")
                         edit_btn = gr.Button("Edit")
                         retry_btn = gr.Button("Retry")
-                with gr.Column(visible=False) as edit_box_col:
-                    edit_box = gr.Textbox(label="Edit this stage", lines=14)
+
+                with gr.Column(visible=False) as edit_group:
+                    edit_box = gr.Textbox(
+                        label="Edit this stage", lines=16, elem_id="edit-box"
+                    )
                     with gr.Row():
                         save_btn = gr.Button("Save and continue", variant="primary")
                         cancel_btn = gr.Button("Cancel")
-                with gr.Column(visible=False) as final_box:
+
+                with gr.Column(visible=False) as final_group:
+                    report = gr.Markdown()
                     final_story = gr.Markdown(elem_classes=["draft"])
+                    with gr.Accordion("Revise the story", open=True):
+                        revision_choice = gr.Radio(
+                            REVISION_OPTIONS, label="Quick changes"
+                        )
+                        revision_custom = gr.Textbox(
+                            label="Or describe your own change",
+                            placeholder="e.g. make the ending darker",
+                        )
+                        revise_btn = gr.Button("Apply revision", variant="primary")
+                    download = gr.File(label="Download story (.md)")
 
-    SCREEN = [rail, title, draft, direction, review_box, edit_box_col, final_box, final_story]
+                with gr.Accordion("Story so far", open=False):
+                    so_far = gr.Markdown()
 
-    def show(s):
-        """Render the development screen for the current step."""
-        step = s["step"]
-        if step >= len(STAGES):  # finished
-            return [rail_html(step), "### Your story is ready", "", "",
-                    gr.update(visible=False), gr.update(visible=False),
-                    gr.update(visible=True), s["accepted"]["Story"]]
-        stage = STAGES[step]
-        return [rail_html(step), f"### {stage}  \n<small>Step {step + 1} of {len(STAGES)}</small>",
-                fake_generate(stage, s["attempt"]), "",
-                gr.update(visible=True), gr.update(visible=False),
-                gr.update(visible=False), ""]
+    VIEW = [
+        rail,
+        title,
+        draft,
+        direction,
+        review_group,
+        edit_group,
+        final_group,
+        report,
+        final_story,
+        download,
+        so_far,
+        revision_choice,
+        revision_custom,
+    ]
 
-    def develop(idea_text):
-        if len(idea_text.strip()) < 10:
+    # ---------------------------------------------------------------- handlers
+    def view(status: dict) -> dict:
+        v, stage, done = status["values"], status["stage"], status["done"]
+        out = {
+            rail: rail_html(v, stage, done),
+            so_far: so_far_md(v),
+            direction: "",
+            edit_group: gr.update(visible=False),
+        }
+        if done:
+            return out | {
+                title: "### Your story is ready",
+                review_group: gr.update(visible=False),
+                final_group: gr.update(visible=True),
+                report: report_md(v),
+                final_story: v.get("final_story", ""),
+                download: export_story(v),
+                revision_choice: None,
+                revision_custom: "",
+            }
+        step = STAGES.index(stage) + 1
+        return out | {
+            title: f"### {LABELS[stage]}  \n<small>Step {step} of {len(STAGES)}</small>",
+            draft: status["content"],
+            review_group: gr.update(visible=True),
+            final_group: gr.update(visible=False),
+        }
+
+    def safe(fn, *args):
+        try:
+            return fn(*args)
+        except gr.Error:
+            raise
+        except Exception as e:
+            raise gr.Error(f"Something went wrong while writing: {e}")
+
+    def open_dev(idea_text):
+        if len((idea_text or "").strip()) < 10:
             raise gr.Error("Describe your idea in at least one full sentence.")
-        s = {"step": 0, "attempt": 0, "accepted": {}}
-        return [s, gr.update(visible=False), gr.update(visible=True)] + show(s)
+        return {
+            create_screen: gr.update(visible=False),
+            dev_screen: gr.update(visible=True),
+            rail: rail_html({}, None, False),
+            title: "### Concept",
+            draft: "_Reading your idea and developing a concept…_",
+            review_group: gr.update(visible=True),
+            final_group: gr.update(visible=False),
+            edit_group: gr.update(visible=False),
+            so_far: "",
+        }
 
-    def accept(s, text=None):
-        stage = STAGES[s["step"]]
-        s["accepted"][stage] = text if text is not None else fake_generate(stage, s["attempt"])
-        s["step"] += 1
-        s["attempt"] = 0
-        return [s] + show(s)
+    def start(ctype, idea_text, g, t, lang, size):
+        brief = {
+            "content_type": ctype,
+            "idea": idea_text,
+            "genres": g,
+            "tones": t,
+            "language": lang,
+            "length": size,
+        }
+        tid, status = safe(client.start, brief)
+        if status["error"]:
+            raise gr.Error(status["error"])
+        return {thread: tid} | view(status)
 
-    def retry(s):
-        s["attempt"] += 1
-        return [s] + show(s)
+    def open_editor(tid):
+        return {
+            edit_box: client.status(tid)["content"],
+            edit_group: gr.update(visible=True),
+            review_group: gr.update(visible=False),
+        }
 
-    def open_edit(s):
-        return (fake_generate(STAGES[s["step"]], s["attempt"]),
-                gr.update(visible=True), gr.update(visible=False))
+    def revise(tid, choice, custom):
+        instruction = (custom or "").strip() or choice
+        if not instruction:
+            gr.Warning("Pick a quick change or describe your own.")
+            return {c: gr.skip() for c in VIEW}
 
-    develop_btn.click(develop, idea, [session, create_screen, dev_screen] + SCREEN)
-    accept_btn.click(accept, session, [session] + SCREEN)
-    retry_btn.click(retry, session, [session] + SCREEN)
-    edit_btn.click(open_edit, session, [edit_box, edit_box_col, review_box])
-    save_btn.click(accept, [session, edit_box], [session] + SCREEN)
-    cancel_btn.click(lambda: (gr.update(visible=False), gr.update(visible=True)),
-                     None, [edit_box_col, review_box])
-    restart_btn.click(lambda: (gr.update(visible=True), gr.update(visible=False)),
-                      None, [create_screen, dev_screen])
+    develop_btn.click(
+        open_dev,
+        idea,
+        [
+            create_screen,
+            dev_screen,
+            rail,
+            title,
+            draft,
+            review_group,
+            final_group,
+            edit_group,
+            so_far,
+        ],
+    ).success(
+        start, [content_type, idea, genres, tones, language, length], [thread] + VIEW
+    )
+
+    accept_btn.click(lambda tid: view(safe(client.accept, tid)), thread, VIEW)
+    retry_btn.click(
+        lambda tid, d: view(safe(client.retry, tid, d)), [thread, direction], VIEW
+    )
+    edit_btn.click(open_editor, thread, [edit_box, edit_group, review_group])
+    save_btn.click(
+        lambda tid, text: view(safe(client.edit, tid, text)), [thread, edit_box], VIEW
+    )
+    cancel_btn.click(
+        lambda: (gr.update(visible=False), gr.update(visible=True)),
+        None,
+        [edit_group, review_group],
+    )
+    revise_btn.click(revise, [thread, revision_choice, revision_custom], VIEW)
+    restart_btn.click(
+        lambda: (None, gr.update(visible=True), gr.update(visible=False)),
+        None,
+        [thread, create_screen, dev_screen],
+    )
+
 
 if __name__ == "__main__":
-    theme = gr.themes.Soft(
-        primary_hue=gr.themes.Color(c50="#FFF8E8", c100="#FFEFC7", c200="#FBDC91",
-                                    c300="#F2C45A", c400="#E3A72F", c500="#C98A10",
-                                    c600="#A8720C", c700="#855A0B", c800="#63430A",
-                                    c900="#442E07", c950="#2A1C04"),
-        neutral_hue="slate",
-        font=[gr.themes.GoogleFont("Work Sans"), "system-ui", "sans-serif"],
-    )
-    demo.launch(theme=theme, css=CSS, head=HEAD)
+    demo.queue().launch(theme=THEME, css=CSS, head=HEAD)
