@@ -22,7 +22,7 @@ _client = None
 
 
 def is_mock() -> bool:
-    return not os.getenv("ANTHROPIC_API_KEY")
+    return not os.getenv("GROQ_API_KEY")
 
 
 def provider_name() -> str:
@@ -30,7 +30,7 @@ def provider_name() -> str:
 
 
 def generate(system: str, prompt: str, max_token: int = 1500, stage="") -> str:
-    if is_mock:
+    if is_mock():
         value = SAMPLE.get(stage, "Sample text.")
         if isinstance(value, list):
             n = _calls.get(stage, 0)

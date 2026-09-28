@@ -1,3 +1,4 @@
+from email.mime import text
 import json
 from config import REWRITE_THRESHOLD, STAGES
 from llm import generate
@@ -59,16 +60,13 @@ STAGE_NODES = {f"gen_{s}": make_stage_node(s) for s in STAGES}
 
 
 def quality_checker(state: dict) -> dict:
-    text = generate(
+    raw = generate(
         system_prompt(state),
         quality_prompt(state),
-        MAX_TOKENS["rewrite"],
-        stage="rewrite",
+        MAX_TOKENS["quality"],
+        stage="quality",
     )
-    return {
-        "final_story": text,
-        "quality_report": dict(state.get("quality_report", {}), rewritten=True),
-    }
+    return {"quality_report": parse_report(raw)}
 
 
 def rewriter(state: dict) -> dict:

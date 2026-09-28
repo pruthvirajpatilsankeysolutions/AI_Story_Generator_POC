@@ -37,6 +37,7 @@ def build_graph():
     g.add_node("idea_analyzer", nodes.idea_analyzer)
     for name, fn in nodes.STAGE_NODES.items():
         g.add_node(name, fn)
+        g.add_edge(name, "review")
 
     g.add_node(
         "review",

@@ -256,6 +256,7 @@ with gr.Blocks(title="AI Creative Story Studio") as demo:
         if not instruction:
             gr.Warning("Pick a quick change or describe your own.")
             return {c: gr.skip() for c in VIEW}
+        return view(safe(client.revise, tid, instruction))
 
     develop_btn.click(
         open_dev,

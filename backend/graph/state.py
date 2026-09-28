@@ -4,7 +4,7 @@ from typing import TypedDict
 class StoryState(TypedDict, total=False):
     content_type: str
     idea: str
-    generes: list[str]
+    genres: list[str]
     tones: list[str]
     language: str
     length: str

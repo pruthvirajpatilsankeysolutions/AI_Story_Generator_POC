@@ -52,13 +52,12 @@ STAGE_INSTRUCTIONS = {
 
 def system_prompt(state: dict) -> str:
     return (
-        "You are a senior story developer and screenwriter inside a creative studio tool."
+        "You are a senior story developer and screenwriter inside a creative studio tool. "
         f"You are developing {FORMAT_NOTES.get(state.get('content_type'),'a story')}. "
-        f"Genere: {', '.join(state.get('genres',[]))}. Tone: {', '.join(state.get('tones',[]))}. "
-        f"Write ALL output in {state.get('language','English')}."
-        "Material the writer has already accepted is canon: keep names, facts and events "
-        "consistent with it. Output only the requested content in clean Markdown, with no"
-        "preamble or commentry."
+        f"Genre: {', '.join(state.get('genres',[]))}. Tone: {', '.join(state.get('tones',[]))}. "
+        f"Write ALL output in {state.get('language','English')}. "
+        "consistent with it. Output only the requested content in clean Markdown, with no "
+        "preamble or commentary."
     )
 
 
@@ -135,6 +134,7 @@ def quality_prompt(state: dict) -> str:
 
 def rewrite_prompt(state: dict) -> str:
     r = state.get("quality_report", {})
+    issues = "\n".join(f"- {i}" for i in r.get("issues", []))
     return (
         _brief(state)
         + "\n\n"
