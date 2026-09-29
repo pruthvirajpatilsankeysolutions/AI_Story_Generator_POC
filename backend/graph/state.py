@@ -19,7 +19,7 @@ class StoryState(TypedDict, total=False):
     structure: str
     beats: str
     outline: str
-    sotry: str
+    story: str
     quality_report: dict
     final_story: str
     revisions: list[str]
