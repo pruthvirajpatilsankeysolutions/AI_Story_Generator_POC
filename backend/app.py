@@ -2,6 +2,7 @@
 
 Run:  python app.py
 Screens: Create Story → Development (Accept / Edit / Retry) → Final Story + Revise
+         → Screenplay (optional)
 """
 
 import tempfile
@@ -54,20 +55,73 @@ def so_far_md(values: dict) -> str:
 
 
 def report_md(values: dict) -> str:
+    """Story Validation panel: status, score, hard failures, warnings, strengths."""
     r = values.get("quality_report") or {}
     if not r:
         return ""
+    history = values.get("quality_history") or []
+    status = r.get("status", "–")
+    badge = {"PASS": "✅ PASS", "FAIL": "❌ FAIL", "UNVERIFIED": "⚠️ NOT VERIFIED"}.get(
+        status, status
+    )
+
+    def items(title, entries):
+        rows = []
+        for e in entries:
+            row = f"- **{e.get('type', '').replace('_', ' ')}**: {e.get('issue', '')}"
+            if e.get("evidence"):
+                row += f"  \n  _Evidence:_ {e['evidence']}"
+            rows.append(row)
+        return f"**{title}**\n" + "\n".join(rows)
+
     out = [
-        f"**Quality score:** {r.get('score', '–')}/10"
-        + (" (rewritten to fix the issues below)" if r.get("rewritten") else "")
+        "### Story Validation",
+        f"**Status:** {badge}  ·  **Score:** {r.get('score', '–')}/100",
     ]
+
+    first = history[0] if history else {}
+    if r.get("rewritten") and first.get("hard_failures"):
+        fixed = len(first["hard_failures"])
+        out.append(
+            f"The first draft had {fixed} continuity "
+            f"problem{'s' if fixed != 1 else ''}. The story was repaired while "
+            "preserving the approved canon, then validated again."
+        )
+    if r.get("reverted_to_draft"):
+        out.append(
+            "The repair introduced new problems, so the original draft was kept."
+        )
+    if status == "FAIL" and r.get("unresolved"):
+        out.append(
+            "Some problems remain after repair. Use **Revise** below to fix them, "
+            "or start a new story."
+        )
+    if status == "UNVERIFIED":
+        out.append(
+            "Continuity could not be verified this time. Read the story carefully "
+            "before using it."
+        )
+
+    if r.get("hard_failures"):
+        out.append(items("Hard failures", r["hard_failures"]))
+    if r.get("warnings"):
+        out.append(items("Warnings", r["warnings"]))
     if r.get("strengths"):
         out.append("**Strengths**\n" + "\n".join(f"- {s}" for s in r["strengths"]))
-    if r.get("issues"):
-        out.append("**Issues found**\n" + "\n".join(f"- {s}" for s in r["issues"]))
+    if r.get("rewritten") and first.get("hard_failures"):
+        out.append(items("Fixed in repair", first["hard_failures"]))
     if values.get("revisions"):
         out.append("**Your revisions:** " + "; ".join(values["revisions"]))
     return "\n\n".join(out)
+
+
+def export_screenplay(text: str) -> str:
+    f = tempfile.NamedTemporaryFile(
+        "w", delete=False, suffix=".fountain", prefix="screenplay_", encoding="utf-8"
+    )
+    f.write(text)
+    f.close()
+    return f.name
 
 
 def export_story(values: dict) -> str:
@@ -159,6 +213,24 @@ with gr.Blocks(title="AI Creative Story Studio") as demo:
                         )
                         revise_btn = gr.Button("Apply revision", variant="primary")
                     download = gr.File(label="Download story (.md)")
+                    with gr.Accordion("🎬 Screenplay", open=False):
+                        gr.Markdown(
+                            "Turn the approved outline and final story into a screenplay, "
+                            "written scene by scene. If it stops (for example a rate limit), "
+                            "click the button again and it continues where it left off."
+                        )
+                        screenplay_btn = gr.Button("Write screenplay", variant="primary")
+                        screenplay_status = gr.Markdown()
+                        screenplay_preview = gr.Code(
+                            label="Screenplay (Fountain format)",
+                            language=None,
+                            interactive=False,
+                            lines=25,
+                            max_lines=40,
+                        )
+                        screenplay_file = gr.File(
+                            label="Download screenplay (.fountain)"
+                        )
 
                 with gr.Accordion("Story so far", open=False):
                     so_far = gr.Markdown()
@@ -200,8 +272,14 @@ with gr.Blocks(title="AI Creative Story Studio") as demo:
                 revision_custom: "",
             }
         step = STAGES.index(stage) + 1
+        heading = f"### {LABELS[stage]}  \n<small>Step {step} of {len(STAGES)}</small>"
+        if status.get("warnings"):
+            heading += (
+                "\n\n**⚠️ Consistency check** (use Edit or Retry to fix, or Accept "
+                "if it's fine):\n" + "\n".join(f"- {w}" for w in status["warnings"])
+            )
         return out | {
-            title: f"### {LABELS[stage]}  \n<small>Step {step} of {len(STAGES)}</small>",
+            title: heading,
             draft: status["content"],
             review_group: gr.update(visible=True),
             final_group: gr.update(visible=False),
@@ -258,6 +336,36 @@ with gr.Blocks(title="AI Creative Story Studio") as demo:
             return {c: gr.skip() for c in VIEW}
         return view(safe(client.revise, tid, instruction))
 
+    def write_screenplay(tid):
+        """Writes the screenplay scene by scene, updating the screen after each scene."""
+        if not tid:
+            raise gr.Error("Start a story first.")
+        try:
+            for p in client.write_screenplay(tid):
+                if not p["done"]:
+                    yield {
+                        screenplay_status: f"⏳ {p['message']}",
+                        screenplay_preview: p["text"],
+                        screenplay_file: None,
+                    }
+                    continue
+                msg = f"**✅ {p['message']}**"
+                if p.get("warnings"):
+                    msg += "\n\n**Check these:**\n" + "\n".join(
+                        f"- {w}" for w in p["warnings"]
+                    )
+                yield {
+                    screenplay_status: msg,
+                    screenplay_preview: p["text"],
+                    screenplay_file: export_screenplay(p["text"]),
+                }
+        except gr.Error:
+            raise
+        except Exception as e:
+            raise gr.Error(
+                f"Screenplay stopped: {e}. Click Write screenplay again to continue."
+            )
+
     develop_btn.click(
         open_dev,
         idea,
@@ -290,10 +398,22 @@ with gr.Blocks(title="AI Creative Story Studio") as demo:
         [edit_group, review_group],
     )
     revise_btn.click(revise, [thread, revision_choice, revision_custom], VIEW)
+    screenplay_btn.click(
+        write_screenplay,
+        thread,
+        [screenplay_status, screenplay_preview, screenplay_file],
+    )
     restart_btn.click(
-        lambda: (None, gr.update(visible=True), gr.update(visible=False)),
+        lambda: (None, gr.update(visible=True), gr.update(visible=False), "", "", None),
         None,
-        [thread, create_screen, dev_screen],
+        [
+            thread,
+            create_screen,
+            dev_screen,
+            screenplay_status,
+            screenplay_preview,
+            screenplay_file,
+        ],
     )
 
 

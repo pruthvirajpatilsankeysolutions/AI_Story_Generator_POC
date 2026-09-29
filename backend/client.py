@@ -1,7 +1,7 @@
 import uuid
 
 from langgraph.types import Command
-
+from graph import screenplay
 from graph.prompts import MAX_TOKENS, revise_prompt, system_prompt
 from graph.workflow import build_graph
 from llm import generate
@@ -32,15 +32,105 @@ class StoryClient:
     def revise(self, thread_id: str, instruction: str) -> dict:
         """Revise the finished story without re-running the pipeline."""
         values = self.graph.get_state(self._cfg(thread_id)).values
-        text = generate(system_prompt(values), revise_prompt(values, instruction),
-                        MAX_TOKENS["revise"], stage="revise")
-        self.graph.update_state(self._cfg(thread_id), {
-            "final_story": text, "revisions": values.get("revisions", []) + [instruction]})
+        text = generate(
+            system_prompt(values),
+            revise_prompt(values, instruction),
+            MAX_TOKENS["revise"],
+            stage="revise",
+        )
+        self.graph.update_state(
+            self._cfg(thread_id),
+            {
+                "final_story": text,
+                "revisions": values.get("revisions", []) + [instruction],
+            },
+        )
         return self.status(thread_id)
+
+    def write_screenplay(self, thread_id: str, restart: bool = False):
+        """Write the screenplay scene by scene. Yields progress after every scene.
+
+        Progress is saved after each scene, so if a call fails (for example a rate
+        limit), pressing the button again continues from the next unfinished scene.
+        """
+        cfg = self._cfg(thread_id)
+        values = self.graph.get_state(cfg).values
+        if not values.get("final_story"):
+            raise RuntimeError("Finish the story before writing the screenplay.")
+
+        if restart or values.get("screenplay"):  # finished before: start fresh
+            values = {
+                **values,
+                "screenplay_plan": [],
+                "screenplay_scenes": [],
+                "scene_summaries": [],
+                "screenplay_warnings": [],
+                "screenplay": "",
+            }
+
+        plan = values.get("screenplay_plan") or []
+        if not plan:
+            yield {
+                "done": False,
+                "scene": 0,
+                "total": 0,
+                "text": "",
+                "message": "Planning scenes from the approved outline...",
+            }
+            plan = screenplay.plan_scenes(values)
+        scenes = list(values.get("screenplay_scenes") or [])
+        summaries = list(values.get("scene_summaries") or [])
+        warnings = list(values.get("screenplay_warnings") or [])
+        self.graph.update_state(
+            cfg,
+            {
+                "screenplay_plan": plan,
+                "screenplay_scenes": scenes,
+                "scene_summaries": summaries,
+                "screenplay_warnings": warnings,
+                "screenplay": "",
+            },
+        )
+
+        for i in range(len(scenes), len(plan)):
+            yield {
+                "done": False,
+                "scene": i + 1,
+                "total": len(plan),
+                "text": "\n\n".join(scenes),
+                "message": f"Writing scene {i + 1} of {len(plan)}: {plan[i]['title']}",
+            }
+            body, summary, scene_warnings = screenplay.write_scene(
+                values, plan, i, summaries, scenes[-1] if scenes else ""
+            )
+            scenes.append(body)
+            summaries.append(summary)
+            warnings += [f"Scene {i + 1}: {w}" for w in scene_warnings]
+            self.graph.update_state(
+                cfg,
+                {
+                    "screenplay_scenes": scenes,
+                    "scene_summaries": summaries,
+                    "screenplay_warnings": warnings,
+                },
+            )
+
+        script = screenplay.assemble(values, scenes)
+        self.graph.update_state(cfg, {"screenplay": script})
+        yield {
+            "done": True,
+            "scene": len(plan),
+            "total": len(plan),
+            "text": script,
+            "warnings": warnings,
+            "message": f"Screenplay ready: {len(plan)} scenes.",
+        }
 
     def status(self, thread_id: str) -> dict:
         snap = self.graph.get_state(self._cfg(thread_id))
-        pending = next((t.interrupts[0].value for t in snap.tasks if t.interrupts), None)
+        pending = next(
+            (t.interrupts[0].value for t in snap.tasks if t.interrupts), None
+        )
         return {
             "values": snap.values,
             "stage": pending["stage"] if pending else None,
