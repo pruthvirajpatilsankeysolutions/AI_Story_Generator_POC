@@ -4,6 +4,7 @@ from pathlib import Path
 import time
 from dotenv import load_dotenv
 import re
+
 load_dotenv()
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
@@ -70,7 +71,7 @@ def generate(system: str, prompt: str, max_token: int = 1500, stage="") -> str:
             _calls[stage] = n + 1
             value = value[min(n, len(value) - 1)]
         return value
-    
+
     limit = min(max_token + REASONING_BUFFER, MAX_OUTPUT)
     call = {"gemini": _gemini, "groq": _groq, "ollama": _ollama}[which]
     text = strip_thinking(call(system, prompt, limit))
@@ -84,13 +85,14 @@ def generate(system: str, prompt: str, max_token: int = 1500, stage="") -> str:
 
 def strip_thinking(text: str) -> str:
     text = text or ""
-    text = re.sub(r"<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(
+        r"<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL | re.IGNORECASE
+    )
     closing = re.search(r"</think(?:ing)?>", text, flags=re.IGNORECASE)
     if closing:
-        text = text[closing.end():]
+        text = text[closing.end() :]
     text = re.sub(r"<think(?:ing)?>.*", "", text, flags=re.DOTALL | re.IGNORECASE)
     return text.strip()
-
 
 
 def _gemini(system: str, prompt: str, limit: int) -> str:
@@ -158,7 +160,6 @@ def _ollama(system: str, prompt: str, limit: int) -> str:
                 "num_ctx": OLLAMA_CONTEXT,
                 "temperature": 0.8,
             },
-            
             **extra,
         )
     except ConnectionError as e:

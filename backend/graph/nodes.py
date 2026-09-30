@@ -75,11 +75,11 @@ def make_stage_node(stage: str):
 
 STAGE_NODES = {f"gen_{s}": make_stage_node(s) for s in STAGES}
 
-# Where to go after a stage is approved.
 NEXT_NODE = {
     s: (f"gen_{STAGES[i + 1]}" if i + 1 < len(STAGES) else "quality_checker")
     for i, s in enumerate(STAGES)
 }
+
 
 
 def route_after_generation(state: dict) -> str:
@@ -199,7 +199,7 @@ def route_after_quality(state: dict) -> str:
     if status == "PASS" and not report.get("hard_failures"):
         return "finalize"
     if status == "UNVERIFIED":
-        return "finalize"  # can't repair what we couldn't read; UI shows the warning
+        return "finalize"  
     if state.get("repair_attempts", 0) < MAX_REPAIR_ROUNDS:
         return "rewriter"
-    return "finalize"  # repaired and still failing: stop and report
+    return "finalize" 
