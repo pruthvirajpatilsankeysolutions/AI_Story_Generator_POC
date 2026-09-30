@@ -10,7 +10,7 @@ import re
 from config import HARD_FAILURE_TYPES, LABELS, REWRITE_THRESHOLD, STAGES
 
 
-# ---------------------------------------------------------------- canon
+
 def get_approved_canon(state: dict, stages=None, exclude=()) -> dict:
     """Return {stage: content} for approved stages only, in story order.
 

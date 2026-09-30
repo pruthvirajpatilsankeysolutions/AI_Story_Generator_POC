@@ -86,8 +86,14 @@ LANGUAGES = [
 LENGTHS = {
     "Short": {"words": 1000, "scenes": "8-12", "beats": 10},
     "Medium": {"words": 2500, "scenes": "15-20", "beats": 15},
-    "Long": {"words": 4500, "scenes": "25-35", "beats": 15},
+    "Long": {"words": 7000, "scenes": "45-50", "beats": 30},
 }
+
+# LENGTHS = {
+#     "Short": {"words": 1000, "scenes": "8-12", "beats": 10},
+#     "Medium": {"words": 2500, "scenes": "15-20", "beats": 15},
+#     "Long": {"words": 4500, "scenes": "25-35", "beats": 15},
+# }
 
 REVISION_OPTIONS = [
     "Make it more emotional",

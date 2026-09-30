@@ -88,7 +88,7 @@ def build_graph():
     g.add_node(
         "sync_bible", nodes.sync_bible, destinations=tuple(nodes.STAGE_NODES.keys())
     )
-    
+
     g.add_node("quality_checker", nodes.quality_checker)
     g.add_node("rewriter", nodes.rewriter)
     g.add_node("finalize", nodes.finalize)

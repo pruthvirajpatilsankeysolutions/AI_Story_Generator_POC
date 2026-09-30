@@ -2,10 +2,10 @@
 import gradio as gr
 
 THEME = gr.themes.Soft(
-    primary_hue=gr.themes.Color(c50="#FFF8E8", c100="#FFEFC7", c200="#FBDC91",
-                                c300="#F2C45A", c400="#E3A72F", c500="#C98A10",
-                                c600="#A8720C", c700="#855A0B", c800="#63430A",
-                                c900="#442E07", c950="#2A1C04"),
+    primary_hue=gr.themes.Color(c50="#FFF8E8", c100="#FFEFC7", c200="#334FCE",
+                                c300="#34eb7a", c400="#34eb7a", c500="#34eb7a",
+                                c600="#65da92", c700="#34eb7a", c800="#34eb7a",
+                                c900="#08CEBE", c950="#0A67F1"),
     neutral_hue="slate",
     font=[gr.themes.GoogleFont("Work Sans"), "system-ui", "sans-serif"],
 )
